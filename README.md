@@ -58,7 +58,3 @@ Este proyecto fue realizado por **Daedalus** a solicitud de **Martín Oviedo**, 
 
 Este script fue creado por **Daedalus** por solicitud de **Martín Oviedo**.  
 Si tienes preguntas o sugerencias, no dudes en contactarnos.
-
----
-
-Este README debería funcionar bien para tu repositorio en GitHub. Si necesitas modificar el nombre de usuario o la URL de GitHub, puedes personalizar esos detalles.
