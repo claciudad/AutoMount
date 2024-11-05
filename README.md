@@ -1,5 +1,3 @@
-
-
 # AutoMount - Montaje Automático de Unidades en Linux
 
 Este script en bash permite listar las unidades de disco disponibles en el sistema, seleccionar una de ellas y configurarla para que se monte automáticamente al iniciar el sistema operativo. Ideal para usuarios de Debian 12 y otras distribuciones basadas en Linux que necesiten un acceso rápido y sencillo a sus unidades en cada arranque.
@@ -12,7 +10,8 @@ Este proyecto fue realizado por **Daedalus** a solicitud de **Martín Oviedo**, 
 
 ## Requisitos
 
-- Debian 12 o una distribución compatible.
+- Debian 12 o una distribución compatible (otras distribuciones pueden requerir adaptaciones).
+- util-linux (que contiene el comando blkid).
 - Privilegios de superusuario (sudo) para modificar el archivo `/etc/fstab`.
 - Bash.
 
@@ -45,7 +44,7 @@ Este proyecto fue realizado por **Daedalus** a solicitud de **Martín Oviedo**, 
 
 4. El script agregará automáticamente la configuración en `/etc/fstab` para que la unidad se monte en cada reinicio.
 
-5. Para verificar los cambios, puedes ejecutar:
+5. El script te preguntará si deseas ejecutar `systemctl daemon-reload` para aplicar los cambios inmediatamente. Si eliges no hacerlo, recuerda ejecutarlo cuando sea posible:
 
    ```bash
    sudo systemctl daemon-reload
@@ -58,3 +57,4 @@ Este proyecto fue realizado por **Daedalus** a solicitud de **Martín Oviedo**, 
 
 Este script fue creado por **Daedalus** por solicitud de **Martín Oviedo**.  
 Si tienes preguntas o sugerencias, no dudes en contactarnos.
+
