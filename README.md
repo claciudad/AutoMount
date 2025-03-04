@@ -1,6 +1,4 @@
-¡Gracias por compartir el `README.md`! Efectivamente, hay algunas actualizaciones que podríamos hacer para reflejar los cambios recientes en el script y mejorar la claridad. A continuación, te propongo una versión actualizada del `README.md`:
 
----
 
 # AutoMount - Montaje Automático de Unidades en Linux
 
@@ -126,5 +124,3 @@ Si tienes preguntas o sugerencias, no dudes en contactarnos.
    - Reorganicé el contenido para que sea más fácil de leer y seguir.
 
 ---
-
-Si estás de acuerdo con estos cambios, puedes actualizar el `README.md` en tu repositorio. ¡Espero que esta versión sea más clara y útil para los usuarios! 😊
