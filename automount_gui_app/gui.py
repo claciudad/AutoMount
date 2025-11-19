@@ -118,6 +118,26 @@ class AutoMountGUI:
             background=[("active", "#4a4a4a")],
             foreground=[("disabled", "#a0a0a0")],
         )
+        # Estilo tabla para Treeview
+        self.style.configure(
+            "Table.Treeview",
+            background="#fafafa",
+            fieldbackground="#fafafa",
+            bordercolor="#c4c4c4",
+            relief="flat",
+            rowheight=24,
+        )
+        self.style.configure(
+            "Table.Treeview.Heading",
+            font=("TkDefaultFont", 10, "bold"),
+            bordercolor="#c4c4c4",
+            relief="raised",
+        )
+        self.style.map(
+            "Table.Treeview",
+            background=[("selected", "#d7e8ff")],
+            foreground=[("selected", "#1d1d1d")],
+        )
 
     def _create_menus(self) -> None:
         menubar = tk.Menu(self.root)
@@ -139,35 +159,47 @@ class AutoMountGUI:
 
         columns = ("name", "size", "type", "fstype", "mountpoint")
 
-        unmounted_tab = ttk.Frame(notebook)
+        unmounted_tab = ttk.Frame(notebook, padding=6)
+        unmounted_container = ttk.Frame(unmounted_tab, borderwidth=1, relief="solid", padding=4)
+        unmounted_container.grid(row=0, column=0, sticky="nsew")
         self.unmounted_tree = ttk.Treeview(
-            unmounted_tab, columns=columns, show="headings", selectmode="browse", height=14
+            unmounted_container, columns=columns, show="headings", selectmode="browse", height=14, style="Table.Treeview"
         )
         for col, text in zip(columns, ("Nombre", "Tamaño", "Tipo", "FS", "Punto de montaje")):
             self.unmounted_tree.heading(col, text=text)
             self.unmounted_tree.column(col, width=120 if col != "mountpoint" else 160, anchor="w")
-        self.unmounted_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=(5, 5))
-        unmounted_scroll = ttk.Scrollbar(unmounted_tab, orient=tk.VERTICAL, command=self.unmounted_tree.yview)
-        unmounted_scroll.grid(row=0, column=1, sticky="ns", pady=(5, 5))
+        self.unmounted_tree.grid(row=0, column=0, sticky="nsew")
+        unmounted_scroll = ttk.Scrollbar(unmounted_container, orient=tk.VERTICAL, command=self.unmounted_tree.yview)
+        unmounted_scroll.grid(row=0, column=1, sticky="ns")
         self.unmounted_tree.configure(yscrollcommand=unmounted_scroll.set)
         self.unmounted_tree.bind("<Button-3>", lambda e: self.show_list_menu(e, self.unmounted_tree))
+        self.unmounted_tree.tag_configure("odd", background="#f0f0f0")
+        self.unmounted_tree.tag_configure("even", background="#fafafa")
 
+        unmounted_container.columnconfigure(0, weight=1)
+        unmounted_container.rowconfigure(0, weight=1)
         unmounted_tab.columnconfigure(0, weight=1)
         unmounted_tab.rowconfigure(0, weight=1)
 
-        mounted_tab = ttk.Frame(notebook)
+        mounted_tab = ttk.Frame(notebook, padding=6)
+        mounted_container = ttk.Frame(mounted_tab, borderwidth=1, relief="solid", padding=4)
+        mounted_container.grid(row=0, column=0, sticky="nsew")
         self.mounted_tree = ttk.Treeview(
-            mounted_tab, columns=columns, show="headings", selectmode="browse", height=14
+            mounted_container, columns=columns, show="headings", selectmode="browse", height=14, style="Table.Treeview"
         )
         for col, text in zip(columns, ("Nombre", "Tamaño", "Tipo", "FS", "Punto de montaje")):
             self.mounted_tree.heading(col, text=text)
             self.mounted_tree.column(col, width=120 if col != "mountpoint" else 160, anchor="w")
-        self.mounted_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=(5, 5))
-        mounted_scroll = ttk.Scrollbar(mounted_tab, orient=tk.VERTICAL, command=self.mounted_tree.yview)
-        mounted_scroll.grid(row=0, column=1, sticky="ns", pady=(5, 5))
+        self.mounted_tree.grid(row=0, column=0, sticky="nsew")
+        mounted_scroll = ttk.Scrollbar(mounted_container, orient=tk.VERTICAL, command=self.mounted_tree.yview)
+        mounted_scroll.grid(row=0, column=1, sticky="ns")
         self.mounted_tree.configure(yscrollcommand=mounted_scroll.set)
         self.mounted_tree.bind("<Button-3>", lambda e: self.show_list_menu(e, self.mounted_tree))
+        self.mounted_tree.tag_configure("odd", background="#f0f0f0")
+        self.mounted_tree.tag_configure("even", background="#fafafa")
 
+        mounted_container.columnconfigure(0, weight=1)
+        mounted_container.rowconfigure(0, weight=1)
         mounted_tab.columnconfigure(0, weight=1)
         mounted_tab.rowconfigure(0, weight=1)
 
@@ -298,7 +330,7 @@ class AutoMountGUI:
         self.unmounted_items.clear()
         self.mounted_items.clear()
 
-        for entry in flatten_lsblk(block_devices):
+        for idx, entry in enumerate(flatten_lsblk(block_devices)):
             if entry.get("type") != "part":
                 continue
             values = (
@@ -309,11 +341,12 @@ class AutoMountGUI:
                 entry.get("mountpoint", ""),
             )
             mountpoint = entry.get("mountpoint")
+            tag = "even" if idx % 2 == 0 else "odd"
             if mountpoint:
-                item_id = self.mounted_tree.insert("", tk.END, values=values)
+                item_id = self.mounted_tree.insert("", tk.END, values=values, tags=(tag,))
                 self.mounted_items[item_id] = entry
             else:
-                item_id = self.unmounted_tree.insert("", tk.END, values=values)
+                item_id = self.unmounted_tree.insert("", tk.END, values=values, tags=(tag,))
                 self.unmounted_items[item_id] = entry
 
     def show_list_menu(self, event, tree: ttk.Treeview) -> None:
