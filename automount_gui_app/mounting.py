@@ -11,9 +11,10 @@ import shutil
 from pathlib import Path
 from typing import Callable, Dict, Tuple
 
-from .constants import FSTAB_PATH
+from .constants import FSTAB_PATH, PROTECTED_MOUNTPOINTS
 from .system import is_mountpoint, run_cmd
 
+PROTECTED_PATHS = {path.as_posix() for path in PROTECTED_MOUNTPOINTS}
 
 class NTFSUnsupportedError(RuntimeError):
     """Error especializado cuando falta soporte NTFS en el sistema."""
@@ -73,6 +74,40 @@ class MountConfigurator:
             shutil.copy(backup_path, FSTAB_PATH)
             raise
         return False
+
+    def unmount(
+        self,
+        device_info: Dict,
+        confirm_action: Callable[[str, str], bool],
+    ) -> bool:
+        mountpoint = device_info.get("mountpoint")
+        if not mountpoint or not mountpoint.startswith("/"):
+            raise ValueError("La unidad seleccionada no tiene un punto de montaje válido para desmontar.")
+        mount_path = Path(mountpoint)
+        if is_protected_mountpoint(mount_path):
+            raise ValueError("No se puede desmontar este punto de montaje desde la aplicación.")
+
+        device_name = device_info["name"]
+        uuid, _ = self._obtain_device_identifiers(device_name, device_info)
+
+        if not confirm_action(device_name, mountpoint):
+            self.log("Operación cancelada por el usuario.")
+            return False
+
+        backup_path = create_fstab_backup()
+        self.log(f"Respaldo de /etc/fstab creado en {backup_path}")
+
+        try:
+            self.log(f"Desmontando {device_name} de {mountpoint}...")
+            run_cmd(["umount", mountpoint])
+            self.log("Unidad desmontada correctamente.")
+            remove_fstab_entry(uuid, mountpoint)
+            self.log("La entrada correspondiente se eliminó de /etc/fstab.")
+            return True
+        except Exception:
+            self.log("Ocurrió un error. Restaurando /etc/fstab desde el respaldo.")
+            shutil.copy(backup_path, FSTAB_PATH)
+            raise
 
     def _prepare_mount_directory(self, mount_path: Path) -> None:
         if is_mountpoint(mount_path):
@@ -154,4 +189,38 @@ def create_fstab_backup() -> Path:
     return backup_path
 
 
-__all__ = ["MountConfigurator", "NTFSUnsupportedError", "mount_options", "create_fstab_backup"]
+def remove_fstab_entry(uuid: str, mountpoint: str) -> None:
+    removed = False
+    with FSTAB_PATH.open("r", encoding="utf-8") as fstab_file:
+        lines = fstab_file.readlines()
+
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            new_lines.append(line)
+            continue
+        parts = stripped.split()
+        if len(parts) >= 2 and parts[0] == f"UUID={uuid}" and parts[1] == mountpoint:
+            removed = True
+            continue
+        new_lines.append(line)
+
+    if not removed:
+        raise RuntimeError("No se encontró una entrada en /etc/fstab para esta unidad.")
+
+    with FSTAB_PATH.open("w", encoding="utf-8") as fstab_file:
+        fstab_file.writelines(new_lines)
+
+
+def is_protected_mountpoint(path: Path) -> bool:
+    return path.as_posix() in PROTECTED_PATHS
+
+
+__all__ = [
+    "MountConfigurator",
+    "NTFSUnsupportedError",
+    "mount_options",
+    "create_fstab_backup",
+    "remove_fstab_entry",
+]

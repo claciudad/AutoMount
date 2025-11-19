@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 
 def run_cmd(cmd: Sequence[str], check: bool = True, capture_output: bool = True) -> str:

@@ -97,8 +97,13 @@ class AutoMountGUI:
         )
         self.umask_combo.pack(side=tk.LEFT, padx=(5, 0))
 
-        ttk.Button(frame, text="Configurar montaje", command=self.configure_mount).grid(
-            row=5, column=0, columnspan=2, sticky="ew"
+        actions_frame = ttk.Frame(frame)
+        actions_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        ttk.Button(actions_frame, text="Configurar montaje", command=self.configure_mount).pack(
+            side=tk.LEFT, expand=True, fill=tk.X
+        )
+        ttk.Button(actions_frame, text="Desmontar", command=self.unmount_selected).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0)
         )
 
         log_header = ttk.Frame(frame)
@@ -214,6 +219,25 @@ class AutoMountGUI:
             self.log(f"Error: {exc}")
             messagebox.showerror("Error", str(exc))
 
+    def unmount_selected(self) -> None:
+        try:
+            selection = self._get_selected_mounted_device()
+            if not selection:
+                raise ValueError("Seleccione una unidad desde la tabla de montadas para desmontar.")
+
+            success = self.mount_configurator.unmount(
+                selection,
+                confirm_action=self.confirm_unmount,
+            )
+            if success:
+                messagebox.showinfo(
+                    "Éxito", f"Se desmontó {selection['name']} y se eliminó su entrada de /etc/fstab."
+                )
+                self.refresh_devices()
+        except Exception as exc:
+            self.log(f"Error: {exc}")
+            messagebox.showerror("Error", str(exc))
+
     def _get_selected_device(self):
         selection = self.unmounted_tree.selection()
         if selection:
@@ -223,10 +247,23 @@ class AutoMountGUI:
             return self.mounted_items[selection[0]]
         return None
 
+    def _get_selected_mounted_device(self):
+        selection = self.mounted_tree.selection()
+        if selection:
+            return self.mounted_items[selection[0]]
+        return None
+
     def confirm_entry(self, entry: str) -> bool:
         return messagebox.askyesno(
             "Confirmar",
             f"Se agregará la siguiente entrada a /etc/fstab:\n{entry}\n\n¿Desea continuar?",
+        )
+
+    def confirm_unmount(self, device_name: str, mountpoint: str) -> bool:
+        return messagebox.askyesno(
+            "Confirmar desmontaje",
+            f"Se desmontará {device_name} montado en {mountpoint} y se eliminará su entrada de /etc/fstab.\n"
+            "¿Desea continuar?",
         )
 
 
