@@ -7,28 +7,82 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict
+from typing import Dict, Optional
+
+try:
+    from tkinter_tooltip import ToolTip  # type: ignore
+except Exception:
+    try:
+        from tktooltip import ToolTip  # type: ignore
+    except Exception:
+        ToolTip = None  # type: ignore
+
+try:
+    from ttkbootstrap.icons import Icon  # type: ignore
+except Exception:
+    Icon = None
+
+EMBEDDED_ICONS = {
+    "arrow-repeat": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAiUlEQVR4nO1UWw6AIAwrxrNwSj85pZeZXyaL7FES1B/6ObqWDTZg4W8UllibyDN2HqXLr01Ex1MDSziDNtjeFAeAnRWP2hFdxKyAEbfiFi9sUSTOcsyyR8QzpBUsg+8N9MOygzY8B2yyPq9NxOJSLfJMmIE0//mMHXSjq2CmOOAsO2+xjQgv0LgAIgBNcyHMvIYAAAAASUVORK5CYII=",
+    "folder": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAV0lEQVR4nGNgGAWjYBQwInPUWv7/p4aht2oY4eayoEtuT8Ot0XMWfnmYGmTARJrbSAc0CSIGBkQwYQTRonDKDY9biWDTPIhGLRi1gHKAkQ+Q0/AooAsAAGIODyaAXF99AAAAAElFTkSuQmCC",
+    "check-circle": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAuklEQVR4nGNgGAUEACOxCk2OR/5HFztjuZygfoIKsBlMikU4JYgxmBiLsFqAzfDVut0Y6kIvlxK0hImQq1brdmM1HJel6ADDAmTXEzIAmw/QfU/QB5QCFAsocT2yemRziPIBtqAgFhC0AGY4siX4XI8OWIgxHBefkOEMDAR8QEwyJARQLEDOJDDX4rMEWQ7Zd8jmEBXJlPgEwwJsvkC2BJ1GV4deVNC8LBqY0pRUi8iqD4ixiJgabegDAO8tXkr1g8qcAAAAAElFTkSuQmCC",
+    "box-arrow-down": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAcElEQVR4nGNgGAXDHjBiE3wdbPufXANF1x5GMZOJXIOIBSz4JNFdgw/g8jVeC/BpJNYhNA+ioW8BwTggJaJJtoCS/AADNA8ikryP7CNig45oH6AHF7HBR5QFuAwjxhKCFhAyhJD84IkDcgHNLRj6AAAKGScEtQuflAAAAABJRU5ErkJggg==",
+    "clipboard": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAb0lEQVR4nGNgGAUDDRgJKYhKyvhPSM2yeTNwmsNEqotIBThtRnd5T0sdhpqSmiYUPjaf0NwHLMQqRHctsWDgfTCtr4OgIVlFFTjlBt4HDAz4XUjIh4PDB8TEA0UWjAYRQTCog4jo0pQYMCCl6dAHAOXiH/rvHeO8AAAAAElFTkSuQmCC",
+}
 
 from .devices import flatten_lsblk, load_block_devices
 from .mounting import MountConfigurator, NTFSUnsupportedError
+
+
+APP_NAME = "AutoMount"
+APP_VERSION = "1.0.0"
+APP_CREDITS = "Martin Oviedo & Ashriel Lopez"
 
 
 class AutoMountGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("AutoMount GUI")
-        self.root.geometry("720x520")
+        self.root.geometry("720x600")
 
         self.unmounted_items: Dict[str, Dict] = {}
         self.mounted_items: Dict[str, Dict] = {}
+        self._tooltips = []
+        self._icon_cache: Dict[str, Optional[tk.PhotoImage]] = {}
+        if Icon is not None:
+            try:
+                self._icon_provider = Icon()
+            except Exception:
+                self._icon_provider = None
+        else:
+            self._icon_provider = None
 
         self.mount_configurator = MountConfigurator(self.log)
 
+        self.style = ttk.Style(self.root)
+        self._configure_styles()
         self._create_menus()
         self._build_widgets()
         self.refresh_devices()
 
+    def _configure_styles(self) -> None:
+        self.style.configure(
+            "Dark.TButton",
+            background="#3a3a3a",
+            foreground="#ffffff",
+            padding=6,
+        )
+        self.style.map(
+            "Dark.TButton",
+            background=[("active", "#4a4a4a")],
+            foreground=[("disabled", "#a0a0a0")],
+        )
+
     def _create_menus(self) -> None:
+        menubar = tk.Menu(self.root)
+        menubar.add_command(label="Créditos", command=self.show_credits)
+        self.root.config(menu=menubar)
+
         self.list_context_menu = tk.Menu(self.root, tearoff=0)
         self.list_context_menu.add_command(label="Copiar lista", command=self.copy_current_list)
         self._context_target = None
@@ -39,50 +93,76 @@ class AutoMountGUI:
 
         devices_frame = ttk.Frame(frame)
         devices_frame.grid(row=0, column=0, columnspan=2, sticky="nsew")
-
-        ttk.Label(devices_frame, text="Unidades sin montar").grid(row=0, column=0, sticky="w")
-        ttk.Label(devices_frame, text="Unidades ya montadas").grid(row=0, column=2, sticky="w")
+        notebook = ttk.Notebook(devices_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
 
         columns = ("name", "size", "type", "fstype", "mountpoint")
 
+        unmounted_tab = ttk.Frame(notebook)
         self.unmounted_tree = ttk.Treeview(
-            devices_frame, columns=columns, show="headings", selectmode="browse", height=10
+            unmounted_tab, columns=columns, show="headings", selectmode="browse", height=14
         )
         for col, text in zip(columns, ("Nombre", "Tamaño", "Tipo", "FS", "Punto de montaje")):
             self.unmounted_tree.heading(col, text=text)
             self.unmounted_tree.column(col, width=120 if col != "mountpoint" else 160, anchor="w")
-        self.unmounted_tree.grid(row=1, column=0, sticky="nsew", padx=(0, 5))
-        unmounted_scroll = ttk.Scrollbar(devices_frame, orient=tk.VERTICAL, command=self.unmounted_tree.yview)
-        unmounted_scroll.grid(row=1, column=1, sticky="ns")
+        self.unmounted_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=(5, 5))
+        unmounted_scroll = ttk.Scrollbar(unmounted_tab, orient=tk.VERTICAL, command=self.unmounted_tree.yview)
+        unmounted_scroll.grid(row=0, column=1, sticky="ns", pady=(5, 5))
         self.unmounted_tree.configure(yscrollcommand=unmounted_scroll.set)
         self.unmounted_tree.bind("<Button-3>", lambda e: self.show_list_menu(e, self.unmounted_tree))
 
+        unmounted_tab.columnconfigure(0, weight=1)
+        unmounted_tab.rowconfigure(0, weight=1)
+
+        mounted_tab = ttk.Frame(notebook)
         self.mounted_tree = ttk.Treeview(
-            devices_frame, columns=columns, show="headings", selectmode="browse", height=10
+            mounted_tab, columns=columns, show="headings", selectmode="browse", height=14
         )
         for col, text in zip(columns, ("Nombre", "Tamaño", "Tipo", "FS", "Punto de montaje")):
             self.mounted_tree.heading(col, text=text)
             self.mounted_tree.column(col, width=120 if col != "mountpoint" else 160, anchor="w")
-        self.mounted_tree.grid(row=1, column=2, sticky="nsew", padx=(5, 0))
-        mounted_scroll = ttk.Scrollbar(devices_frame, orient=tk.VERTICAL, command=self.mounted_tree.yview)
-        mounted_scroll.grid(row=1, column=3, sticky="ns")
+        self.mounted_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=(5, 5))
+        mounted_scroll = ttk.Scrollbar(mounted_tab, orient=tk.VERTICAL, command=self.mounted_tree.yview)
+        mounted_scroll.grid(row=0, column=1, sticky="ns", pady=(5, 5))
         self.mounted_tree.configure(yscrollcommand=mounted_scroll.set)
         self.mounted_tree.bind("<Button-3>", lambda e: self.show_list_menu(e, self.mounted_tree))
 
-        devices_frame.columnconfigure(0, weight=1)
-        devices_frame.columnconfigure(2, weight=1)
-        devices_frame.rowconfigure(1, weight=1)
+        mounted_tab.columnconfigure(0, weight=1)
+        mounted_tab.rowconfigure(0, weight=1)
+
+        notebook.add(unmounted_tab, text="Unidades sin montar")
+        notebook.add(mounted_tab, text="Unidades ya montadas")
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=1, column=0, columnspan=2, pady=(5, 15), sticky="w")
-        ttk.Button(btn_frame, text="Actualizar", command=self.refresh_devices).pack(side=tk.LEFT)
+        refresh_icon = self.get_icon("arrow-repeat")
+        refresh_btn = ttk.Button(
+            btn_frame,
+            text="Actualizar",
+            command=self.refresh_devices,
+            image=refresh_icon,
+            compound=tk.LEFT if refresh_icon else tk.NONE,
+            style="Dark.TButton",
+        )
+        refresh_btn.pack(side=tk.LEFT)
+        self.add_tooltip(refresh_btn, "Vuelve a consultar lsblk para actualizar las tablas.")
 
         ttk.Label(frame, text="Punto de montaje").grid(row=2, column=0, sticky="w")
         mount_frame = ttk.Frame(frame)
         mount_frame.grid(row=3, column=0, columnspan=2, sticky="ew")
         self.mount_entry = ttk.Entry(mount_frame)
         self.mount_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(mount_frame, text="Seleccionar...", command=self.select_directory).pack(side=tk.LEFT, padx=(5, 0))
+        select_icon = self.get_icon("folder")
+        select_btn = ttk.Button(
+            mount_frame,
+            text="Seleccionar...",
+            command=self.select_directory,
+            image=select_icon,
+            compound=tk.LEFT if select_icon else tk.NONE,
+            style="Dark.TButton",
+        )
+        select_btn.pack(side=tk.LEFT, padx=(5, 0))
+        self.add_tooltip(select_btn, "Abre un diálogo para elegir el directorio destino.")
 
         options_frame = ttk.Frame(frame)
         options_frame.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 15))
@@ -96,25 +176,56 @@ class AutoMountGUI:
             width=5,
         )
         self.umask_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.add_tooltip(
+            self.umask_combo,
+            "Permisos por defecto para sistemas no POSIX (NTFS, FAT, etc.).",
+        )
 
         actions_frame = ttk.Frame(frame)
         actions_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        ttk.Button(actions_frame, text="Configurar montaje", command=self.configure_mount).pack(
-            side=tk.LEFT, expand=True, fill=tk.X
+        mount_icon = self.get_icon("check-circle")
+        mount_btn = ttk.Button(
+            actions_frame,
+            text="Configurar montaje",
+            command=self.configure_mount,
+            image=mount_icon,
+            compound=tk.LEFT if mount_icon else tk.NONE,
+            style="Dark.TButton",
         )
-        ttk.Button(actions_frame, text="Desmontar", command=self.unmount_selected).pack(
-            side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0)
+        mount_btn.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        self.add_tooltip(mount_btn, "Agrega la entrada en /etc/fstab y monta la unidad.")
+
+        unmount_icon = self.get_icon("box-arrow-down")
+        unmount_btn = ttk.Button(
+            actions_frame,
+            text="Desmontar",
+            command=self.unmount_selected,
+            image=unmount_icon,
+            compound=tk.LEFT if unmount_icon else tk.NONE,
+            style="Dark.TButton",
         )
+        unmount_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0))
+        self.add_tooltip(unmount_btn, "Desmonta la unidad seleccionada y elimina su entrada.")
 
         log_header = ttk.Frame(frame)
         log_header.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(15, 0))
         ttk.Label(log_header, text="Registro").pack(side=tk.LEFT)
-        ttk.Button(log_header, text="Copiar registro", command=self.copy_log).pack(side=tk.RIGHT)
+        copy_icon = self.get_icon("clipboard")
+        copy_btn = ttk.Button(
+            log_header,
+            text="Copiar registro",
+            command=self.copy_log,
+            image=copy_icon,
+            compound=tk.LEFT if copy_icon else tk.NONE,
+            style="Dark.TButton",
+        )
+        copy_btn.pack(side=tk.RIGHT)
+        self.add_tooltip(copy_btn, "Copia el historial de operaciones al portapapeles.")
 
-        self.log_text = tk.Text(frame, height=10, state=tk.DISABLED)
+        self.log_text = tk.Text(frame, height=8, state=tk.DISABLED)
         self.log_text.grid(row=7, column=0, columnspan=2, sticky="nsew")
 
-        frame.rowconfigure(0, weight=2)
+        frame.rowconfigure(0, weight=3)
         frame.rowconfigure(7, weight=1)
         frame.columnconfigure(0, weight=1)
 
@@ -265,6 +376,61 @@ class AutoMountGUI:
             f"Se desmontará {device_name} montado en {mountpoint} y se eliminará su entrada de /etc/fstab.\n"
             "¿Desea continuar?",
         )
+
+    def show_credits(self) -> None:
+        credits_window = tk.Toplevel(self.root)
+        credits_window.title("Créditos")
+        credits_window.resizable(False, False)
+        credits_window.transient(self.root)
+
+        content = ttk.Frame(credits_window, padding=15)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(content, text=APP_NAME, font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
+        ttk.Label(content, text=f"Versión: {APP_VERSION}").pack(anchor="w", pady=(4, 0))
+        ttk.Label(content, text=f"Créditos: {APP_CREDITS}").pack(anchor="w", pady=(4, 10))
+
+        close_btn = ttk.Button(content, text="Cerrar", command=credits_window.destroy, style="Dark.TButton")
+        close_btn.pack(anchor="e")
+
+    def get_icon(self, name: str) -> Optional[tk.PhotoImage]:
+        if name in self._icon_cache:
+            return self._icon_cache[name]
+
+        icon_image: Optional[tk.PhotoImage] = None
+
+        if hasattr(self, "_icon_provider") and self._icon_provider is not None:
+            # ttkbootstrap provides a few baked-in base64 icons as attributes.
+            icon_data = getattr(self._icon_provider, name, None)
+            if isinstance(icon_data, str):
+                try:
+                    icon_image = tk.PhotoImage(data=icon_data)
+                except Exception:
+                    icon_image = None
+
+        if icon_image is None:
+            icon_data = EMBEDDED_ICONS.get(name)
+            if icon_data:
+                try:
+                    icon_image = tk.PhotoImage(data=icon_data)
+                except Exception:
+                    icon_image = None
+
+        self._icon_cache[name] = icon_image
+        return icon_image
+
+    def add_tooltip(self, widget, text: str) -> None:
+        if ToolTip is None:
+            return
+        tooltip = None
+        for kwargs in ({"text": text}, {"msg": text}):
+            try:
+                tooltip = ToolTip(widget, **kwargs)
+                break
+            except TypeError:
+                continue
+        if tooltip:
+            self._tooltips.append(tooltip)
 
 
 __all__ = ["AutoMountGUI"]

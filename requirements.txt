@@ -1,0 +1,5 @@
+ttkthemes
+tkinter-tooltip==3.1.2
+# ttkbootstrap includes the Icon helper used by the GUI; the separate
+# ttkbootstrap-icons package does not exist on PyPI.
+ttkbootstrap==1.10.1
