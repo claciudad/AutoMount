@@ -17,7 +17,7 @@ prompt() {
   echo "${value:-$default}"
 }
 
-DEFAULT_VERSION="$(grep -Eo 'APP_VERSION\s*=\s*\"[^\"]+\"' "$ROOT_DIR/automount_gui_app/gui.py" | head -n1 | cut -d'\"' -f2)"
+DEFAULT_VERSION="$(awk -F '\"' '/APP_VERSION/ { for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+[.0-9]*$/) { print $i; exit } }' "$ROOT_DIR/automount_gui_app/gui.py")"
 DEFAULT_VERSION="${DEFAULT_VERSION:-1.0.0}"
 
 PKG_NAME="$(prompt 'Nombre del paquete' 'automount-gui')"
