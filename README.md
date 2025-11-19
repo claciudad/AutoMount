@@ -45,6 +45,8 @@ Este proyecto fue realizado por **Daedalus** a solicitud de **Martín Oviedo**, 
 
 ## Uso
 
+### Script en Bash
+
 1. Ejecuta el script con privilegios de superusuario:
 
    ```bash
@@ -97,6 +99,21 @@ La unidad se ha montado correctamente en /home/martin-oviedo/Disco1.
 systemctl daemon-reload se ejecutó correctamente.
 Configuración realizada correctamente.
 ```
+
+### Interfaz gráfica en Python
+
+También puedes utilizar la nueva interfaz Tkinter incluida en `automount_gui.py`. Requisitos adicionales:
+
+- Python 3
+- Tkinter (`sudo apt install python3-tk` en Debian/Ubuntu)
+
+Ejecuta la aplicación con privilegios de superusuario:
+
+```bash
+sudo python3 automount_gui.py
+```
+
+La ventana mostrará las unidades disponibles, permitirá elegir el punto de montaje y se encargará de actualizar `/etc/fstab` creando un respaldo antes de aplicar los cambios.
 
 ## Créditos
 

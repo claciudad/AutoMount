@@ -65,8 +65,8 @@ lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | grep 'disk\|part'
 echo -e "\nIngrese el nombre de la unidad (por ejemplo, sda1) que desea montar automáticamente al iniciar:"
 read -r unidad
 
-# Verificar si la unidad ingresada es válida
-if ! lsblk | grep -qw "$unidad"; then
+# Verificar si la unidad ingresada es válida usando listado simple de nombres
+if ! lsblk -no NAME | grep -Fx -- "$unidad"; then
     echo "Error: La unidad $unidad no existe. Por favor, verifique el nombre e intente nuevamente."
     exit 1
 fi
@@ -90,9 +90,6 @@ if [ ! -d "$punto_montaje" ]; then
     fi
 fi
 
-# Asignar propiedad del punto de montaje al usuario
-chown "$USER_ID":"$GROUP_ID" "$punto_montaje"
-
 # Obtener UUID de la unidad seleccionada
 uuid=$(blkid -s UUID -o value "/dev/$unidad")
 
@@ -112,15 +109,18 @@ if grep -q "UUID=$uuid" /etc/fstab; then
 fi
 
 # Definir opciones de montaje según el tipo de sistema de archivos
+posix_fs=false
 case "$fstype" in
     ext4|ext3|ext2)
-        opciones="defaults,auto,user,rw,exec,umask=022"
+        opciones="defaults,auto,user,rw,exec"
+        posix_fs=true
         ;;
     ntfs|vfat|exfat)
         opciones="defaults,auto,users,rw,exec,uid=$USER_ID,gid=$GROUP_ID,umask=022"
         ;;
     btrfs|xfs)
         opciones="defaults,auto,users,rw,exec"
+        posix_fs=true
         ;;
     *)
         opciones="defaults,auto,users,rw,exec,umask=022"
@@ -128,27 +128,48 @@ case "$fstype" in
 esac
 
 # Confirmar con el usuario antes de modificar /etc/fstab
-echo -e "\nSe agregará la siguiente entrada a /etc/fstab:\nUUID=$uuid $punto_montaje $fstype $opciones 0 0"
+entrada_fstab="UUID=$uuid $punto_montaje $fstype $opciones 0 0"
+echo -e "\nSe agregará la siguiente entrada a /etc/fstab:\n$entrada_fstab"
 if ! confirmacion "¿Desea continuar con los cambios?"; then
     echo "Operación cancelada por el usuario. Saliendo del script."
     exit 1
 fi
 
+# Crear respaldo de /etc/fstab antes de modificarlo
+backup_fstab="/etc/fstab.backup-$(date +%Y%m%d%H%M%S)"
+if cp /etc/fstab "$backup_fstab"; then
+    echo "Respaldo creado en $backup_fstab."
+else
+    echo "Error: No se pudo crear el respaldo de /etc/fstab."
+    exit 1
+fi
+
 # Agregar entrada en /etc/fstab con opciones determinadas
 echo "Agregando entrada a /etc/fstab..."
-if echo "UUID=$uuid $punto_montaje $fstype $opciones 0 0" >> /etc/fstab; then
+if echo "$entrada_fstab" >> /etc/fstab; then
     echo "La unidad se ha configurado para montarse automáticamente al iniciar."
 else
     echo "Error: No se pudo agregar la entrada a /etc/fstab. Verifique los permisos."
+    echo "Restaurando /etc/fstab desde el respaldo..."
+    cp "$backup_fstab" /etc/fstab
     exit 1
 fi
 
 # Montar la unidad inmediatamente para verificar
 echo "Montando la unidad..."
 if mount "$punto_montaje"; then
+    if [ "$posix_fs" = true ]; then
+        chown "$USER_ID":"$GROUP_ID" "$punto_montaje"
+    fi
     echo "La unidad se ha montado correctamente en $punto_montaje. Para montarla manualmente en el futuro, use: mount $punto_montaje"
 else
     echo "Error: No se pudo montar la unidad. Verifique el sistema de archivos y los permisos."
+    echo "Restaurando /etc/fstab desde el respaldo..."
+    if cp "$backup_fstab" /etc/fstab; then
+        echo "Se restauró /etc/fstab a su estado anterior."
+    else
+        echo "Advertencia: No se pudo restaurar automáticamente /etc/fstab. Revíselo manualmente utilizando $backup_fstab."
+    fi
     exit 1
 fi
 
