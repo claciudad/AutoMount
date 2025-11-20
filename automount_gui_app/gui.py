@@ -5,8 +5,12 @@ Definición de la interfaz Tkinter para AutoMount.
 from __future__ import annotations
 
 import tkinter as tk
+import subprocess
+import shutil
+import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter.scrolledtext import ScrolledText
 from typing import Dict, Optional
 
 try:
@@ -22,6 +26,11 @@ try:
 except Exception:
     Icon = None
 
+try:
+    from tkterminal import Terminal  # type: ignore
+except Exception:
+    Terminal = None  # type: ignore
+
 EMBEDDED_ICONS = {
     "arrow-repeat": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAiUlEQVR4nO1UWw6AIAwrxrNwSj85pZeZXyaL7FES1B/6ObqWDTZg4W8UllibyDN2HqXLr01Ex1MDSziDNtjeFAeAnRWP2hFdxKyAEbfiFi9sUSTOcsyyR8QzpBUsg+8N9MOygzY8B2yyPq9NxOJSLfJMmIE0//mMHXSjq2CmOOAsO2+xjQgv0LgAIgBNcyHMvIYAAAAASUVORK5CYII=",
     "folder": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAV0lEQVR4nGNgGAWjYBQwInPUWv7/p4aht2oY4eayoEtuT8Ot0XMWfnmYGmTARJrbSAc0CSIGBkQwYQTRonDKDY9biWDTPIhGLRi1gHKAkQ+Q0/AooAsAAGIODyaAXF99AAAAAElFTkSuQmCC",
@@ -32,6 +41,7 @@ EMBEDDED_ICONS = {
 
 from .devices import flatten_lsblk, load_block_devices
 from .mounting import MountConfigurator, NTFSUnsupportedError
+from .constants import FSTAB_PATH
 
 
 if ToolTip is None:
@@ -90,6 +100,7 @@ class AutoMountGUI:
         self.mounted_items: Dict[str, Dict] = {}
         self._tooltips = []
         self._icon_cache: Dict[str, Optional[tk.PhotoImage]] = {}
+        self._refreshing_devices = False
         if Icon is not None:
             try:
                 self._icon_provider = Icon()
@@ -141,6 +152,7 @@ class AutoMountGUI:
 
     def _create_menus(self) -> None:
         menubar = tk.Menu(self.root)
+        menubar.add_command(label="Abrir fstab", command=self.open_fstab)
         menubar.add_command(label="Créditos", command=self.show_credits)
         self.root.config(menu=menubar)
 
@@ -205,6 +217,9 @@ class AutoMountGUI:
 
         notebook.add(unmounted_tab, text="Unidades sin montar")
         notebook.add(mounted_tab, text="Unidades ya montadas")
+        terminal_tab = ttk.Frame(notebook, padding=6)
+        self._build_terminal_tab(terminal_tab)
+        notebook.add(terminal_tab, text="Editar fstab (nano)")
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=1, column=0, columnspan=2, pady=(5, 15), sticky="w")
@@ -308,6 +323,17 @@ class AutoMountGUI:
         self.log_text.see(tk.END)
         self.log_text.configure(state=tk.DISABLED)
 
+    def _run_in_thread(self, target, on_success=None, on_error=None) -> None:
+        def worker():
+            try:
+                result = target()
+                if on_success:
+                    self.root.after(0, lambda: on_success(result))
+            except Exception as exc:  # noqa: BLE001
+                if on_error:
+                    self.root.after(0, lambda: on_error(exc))
+        threading.Thread(target=worker, daemon=True).start()
+
     def copy_log(self) -> None:
         content = self.log_text.get("1.0", tk.END).strip()
         if not content:
@@ -318,19 +344,33 @@ class AutoMountGUI:
         self.log("Registro copiado al portapapeles.")
 
     def refresh_devices(self) -> None:
-        try:
-            block_devices = load_block_devices()
-        except Exception as exc:
-            messagebox.showerror("Error", f"No se pudieron obtener las unidades: {exc}")
+        if self._refreshing_devices:
             return
+        self._refreshing_devices = True
+        self.log("Actualizando listas de unidades...")
+        self._run_in_thread(
+            target=self._load_devices_thread,
+            on_success=self._populate_devices,
+            on_error=self._populate_devices_error,
+        )
 
+    def _load_devices_thread(self):
+        block_devices = load_block_devices()
+        return flatten_lsblk(block_devices)
+
+    def _populate_devices_error(self, exc: Exception) -> None:
+        self._refreshing_devices = False
+        self.log(f"Error al obtener las unidades: {exc}")
+        messagebox.showerror("Error", f"No se pudieron obtener las unidades: {exc}")
+
+    def _populate_devices(self, entries) -> None:
         for tree in (self.unmounted_tree, self.mounted_tree):
             for item in tree.get_children():
                 tree.delete(item)
         self.unmounted_items.clear()
         self.mounted_items.clear()
 
-        for idx, entry in enumerate(flatten_lsblk(block_devices)):
+        for idx, entry in enumerate(entries):
             if entry.get("type") != "part":
                 continue
             values = (
@@ -348,6 +388,7 @@ class AutoMountGUI:
             else:
                 item_id = self.unmounted_tree.insert("", tk.END, values=values, tags=(tag,))
                 self.unmounted_items[item_id] = entry
+        self._refreshing_devices = False
 
     def show_list_menu(self, event, tree: ttk.Treeview) -> None:
         self._context_target = tree
@@ -451,6 +492,42 @@ class AutoMountGUI:
             "¿Desea continuar?",
         )
 
+    def open_fstab(self) -> None:
+        path = FSTAB_PATH
+        if not path.exists():
+            messagebox.showerror("No encontrado", f"No se encontró {path}.")
+            return
+        opener = shutil.which("xdg-open")
+        if opener:
+            try:
+                # Popen en vez de run para no bloquear si no hay entorno gráfico para root.
+                subprocess.Popen([opener, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.log(f"Abrir {path} con xdg-open.")
+                return
+            except Exception as exc:
+                self.log(f"Error al abrir {path}: {exc}")
+                messagebox.showerror("Error", f"No se pudo abrir {path}.\n{exc}")
+        self._show_fstab_viewer(path)
+
+    def _show_fstab_viewer(self, path: Path) -> None:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo leer {path}.\n{exc}")
+            return
+
+        viewer = tk.Toplevel(self.root)
+        viewer.title(f"Vista de {path}")
+        viewer.geometry("720x480")
+        viewer.transient(self.root)
+
+        text_area = ScrolledText(viewer, wrap=tk.NONE)
+        text_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        text_area.insert(tk.END, content)
+        text_area.configure(state=tk.DISABLED)
+
+        ttk.Button(viewer, text="Cerrar", command=viewer.destroy, style="Dark.TButton").pack(pady=(0, 10))
+
     def show_credits(self) -> None:
         credits_window = tk.Toplevel(self.root)
         credits_window.title("Créditos")
@@ -466,6 +543,59 @@ class AutoMountGUI:
 
         close_btn = ttk.Button(content, text="Cerrar", command=credits_window.destroy, style="Dark.TButton")
         close_btn.pack(anchor="e")
+
+    def _build_terminal_tab(self, tab: ttk.Frame) -> None:
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+        ttk.Label(
+            tab,
+            text="Edita /etc/fstab con nano dentro de la aplicación. Usa esta opción bajo tu propio riesgo.",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+
+        if Terminal is None:
+            missing = ttk.Label(
+                tab,
+                text="Falta dependencia opcional: instala tkterminal==0.4.0 para habilitar el terminal embebido.",
+                foreground="#b22222",
+                wraplength=520,
+            )
+            missing.grid(row=1, column=0, sticky="nsew")
+            return
+
+        container = ttk.Frame(tab, borderwidth=1, relief="solid")
+        container.grid(row=1, column=0, sticky="nsew", pady=(0, 6))
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+
+        self.nano_terminal = Terminal(container, font=("TkFixedFont", 10))
+        self.nano_terminal.grid(row=0, column=0, sticky="nsew")
+
+        controls = ttk.Frame(tab)
+        controls.grid(row=2, column=0, sticky="e")
+        launch_btn = ttk.Button(
+            controls,
+            text="Abrir nano",
+            command=self.launch_fstab_nano,
+            style="Dark.TButton",
+        )
+        launch_btn.pack(side=tk.RIGHT)
+        self.add_tooltip(launch_btn, "Inicia nano /etc/fstab en la terminal embebida.")
+
+    def launch_fstab_nano(self) -> None:
+        if Terminal is None or not hasattr(self, "nano_terminal"):
+            messagebox.showerror(
+                "Terminal no disponible",
+                "Instala tkterminal==0.4.0 y reinicia la aplicación para usar nano embebido.",
+            )
+            return
+        try:
+            # Reinicia shell y abre nano sobre fstab
+            self.nano_terminal.shell = True
+            self.nano_terminal.clear()
+            self.nano_terminal.run_command(f"nano {FSTAB_PATH}")
+        except Exception as exc:
+            self.log(f"No se pudo iniciar nano embebido: {exc}")
+            messagebox.showerror("Error", f"No se pudo iniciar nano en el terminal embebido.\n{exc}")
 
     def get_icon(self, name: str) -> Optional[tk.PhotoImage]:
         if name in self._icon_cache:
