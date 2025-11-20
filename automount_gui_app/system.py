@@ -34,13 +34,29 @@ def ensure_root(target_script: Path | None = None) -> None:
     if os.geteuid() == 0:
         return
 
+    script_path = target_script or Path(__file__).resolve()
+    reexec_args = [sys.executable, str(script_path), *sys.argv[1:]]
+
+    # Si no hay TTY (ej. doble clic o desde lanzador), intenta pkexec para que muestre
+    # el diálogo gráfico de polkit.
+    pkexec_bin = shutil.which("pkexec")
+    if pkexec_bin:
+        try:
+            os.execvp(pkexec_bin, [pkexec_bin, "--disable-internal-agent", *reexec_args])
+        except Exception:
+            # Continuamos con sudo si pkexec falla.
+            pass
+
     if shutil.which("sudo"):
-        script_path = target_script or Path(__file__).resolve()
-        cmd = ["sudo", sys.executable, str(script_path), *sys.argv[1:]]
+        cmd = ["sudo", *reexec_args]
         print("Solicitando privilegios de administrador...", file=sys.stderr)
         os.execvp("sudo", cmd)
 
-    print("Error: esta aplicación debe ejecutarse con privilegios de administrador (sudo).", file=sys.stderr)
+    print(
+        "Error: esta aplicación debe ejecutarse con privilegios de administrador. "
+        "Ejecuta desde una terminal con: sudo python3 automount_gui.py",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 

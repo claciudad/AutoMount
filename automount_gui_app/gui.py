@@ -26,11 +26,6 @@ try:
 except Exception:
     Icon = None
 
-try:
-    from tkterminal import Terminal  # type: ignore
-except Exception:
-    Terminal = None  # type: ignore
-
 EMBEDDED_ICONS = {
     "arrow-repeat": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAiUlEQVR4nO1UWw6AIAwrxrNwSj85pZeZXyaL7FES1B/6ObqWDTZg4W8UllibyDN2HqXLr01Ex1MDSziDNtjeFAeAnRWP2hFdxKyAEbfiFi9sUSTOcsyyR8QzpBUsg+8N9MOygzY8B2yyPq9NxOJSLfJMmIE0//mMHXSjq2CmOOAsO2+xjQgv0LgAIgBNcyHMvIYAAAAASUVORK5CYII=",
     "folder": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAV0lEQVR4nGNgGAWjYBQwInPUWv7/p4aht2oY4eayoEtuT8Ot0XMWfnmYGmTARJrbSAc0CSIGBkQwYQTRonDKDY9biWDTPIhGLRi1gHKAkQ+Q0/AooAsAAGIODyaAXF99AAAAAElFTkSuQmCC",
@@ -218,8 +213,8 @@ class AutoMountGUI:
         notebook.add(unmounted_tab, text="Unidades sin montar")
         notebook.add(mounted_tab, text="Unidades ya montadas")
         terminal_tab = ttk.Frame(notebook, padding=6)
-        self._build_terminal_tab(terminal_tab)
-        notebook.add(terminal_tab, text="Editar fstab (nano)")
+        self._build_fstab_tab(terminal_tab)
+        notebook.add(terminal_tab, text="fstab en la app")
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=1, column=0, columnspan=2, pady=(5, 15), sticky="w")
@@ -509,6 +504,13 @@ class AutoMountGUI:
                 messagebox.showerror("Error", f"No se pudo abrir {path}.\n{exc}")
         self._show_fstab_viewer(path)
 
+    def show_fstab_readonly(self) -> None:
+        path = FSTAB_PATH
+        if not path.exists():
+            messagebox.showerror("No encontrado", f"No se encontró {path}.")
+            return
+        self._show_fstab_viewer(path)
+
     def _show_fstab_viewer(self, path: Path) -> None:
         try:
             content = path.read_text(encoding="utf-8")
@@ -544,58 +546,23 @@ class AutoMountGUI:
         close_btn = ttk.Button(content, text="Cerrar", command=credits_window.destroy, style="Dark.TButton")
         close_btn.pack(anchor="e")
 
-    def _build_terminal_tab(self, tab: ttk.Frame) -> None:
+    def _build_fstab_tab(self, tab: ttk.Frame) -> None:
         tab.columnconfigure(0, weight=1)
-        tab.rowconfigure(1, weight=1)
         ttk.Label(
             tab,
-            text="Edita /etc/fstab con nano dentro de la aplicación. Usa esta opción bajo tu propio riesgo.",
+            text="Revisa /etc/fstab dentro de la aplicación en modo solo lectura.",
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
 
-        if Terminal is None:
-            missing = ttk.Label(
-                tab,
-                text="Falta dependencia opcional: instala tkterminal==0.4.0 para habilitar el terminal embebido.",
-                foreground="#b22222",
-                wraplength=520,
-            )
-            missing.grid(row=1, column=0, sticky="nsew")
-            return
-
-        container = ttk.Frame(tab, borderwidth=1, relief="solid")
-        container.grid(row=1, column=0, sticky="nsew", pady=(0, 6))
-        container.rowconfigure(0, weight=1)
-        container.columnconfigure(0, weight=1)
-
-        self.nano_terminal = Terminal(container, font=("TkFixedFont", 10))
-        self.nano_terminal.grid(row=0, column=0, sticky="nsew")
-
         controls = ttk.Frame(tab)
-        controls.grid(row=2, column=0, sticky="e")
-        launch_btn = ttk.Button(
+        controls.grid(row=1, column=0, sticky="e")
+        view_btn = ttk.Button(
             controls,
-            text="Abrir nano",
-            command=self.launch_fstab_nano,
+            text="Ver /etc/fstab",
+            command=self.show_fstab_readonly,
             style="Dark.TButton",
         )
-        launch_btn.pack(side=tk.RIGHT)
-        self.add_tooltip(launch_btn, "Inicia nano /etc/fstab en la terminal embebida.")
-
-    def launch_fstab_nano(self) -> None:
-        if Terminal is None or not hasattr(self, "nano_terminal"):
-            messagebox.showerror(
-                "Terminal no disponible",
-                "Instala tkterminal==0.4.0 y reinicia la aplicación para usar nano embebido.",
-            )
-            return
-        try:
-            # Reinicia shell y abre nano sobre fstab
-            self.nano_terminal.shell = True
-            self.nano_terminal.clear()
-            self.nano_terminal.run_command(f"nano {FSTAB_PATH}")
-        except Exception as exc:
-            self.log(f"No se pudo iniciar nano embebido: {exc}")
-            messagebox.showerror("Error", f"No se pudo iniciar nano en el terminal embebido.\n{exc}")
+        view_btn.pack(side=tk.RIGHT)
+        self.add_tooltip(view_btn, "Abre una vista de solo lectura de /etc/fstab.")
 
     def get_icon(self, name: str) -> Optional[tk.PhotoImage]:
         if name in self._icon_cache:

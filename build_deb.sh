@@ -5,6 +5,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RELEASE_DIR="$ROOT_DIR/releases"
+ICON_SRC="$ROOT_DIR/assets/automount-gui.svg"
 
 command -v dpkg-deb >/dev/null 2>&1 || {
   echo "dpkg-deb no está instalado. Instálalo (sudo apt-get install dpkg-dev) y reintenta." >&2
@@ -26,6 +27,12 @@ PKG_ARCH="$(prompt 'Arquitectura (all/amd64/arm64, etc.)' 'all')"
 PKG_MAINTAINER="$(prompt 'Mantenedor (Nombre <email>)' 'Martin Oviedo <martin@example.com>')"
 PKG_DESCRIPTION="$(prompt 'Descripción breve' 'Interfaz gráfica para AutoMount (montaje de unidades)')"
 
+if [[ ! -f "$ICON_SRC" ]]; then
+  echo "No se encontró el icono en: $ICON_SRC" >&2
+  echo "Crea un SVG con el icono antes de generar el .deb." >&2
+  exit 1
+fi
+
 BUILD_DIR="$(mktemp -d)"
 PKG_ROOT="$BUILD_DIR/${PKG_NAME}_${PKG_VERSION}"
 
@@ -37,6 +44,8 @@ trap cleanup EXIT
 mkdir -p "$PKG_ROOT/DEBIAN"
 mkdir -p "$PKG_ROOT/usr/local/share/$PKG_NAME"
 mkdir -p "$PKG_ROOT/usr/local/bin"
+mkdir -p "$PKG_ROOT/usr/share/applications"
+mkdir -p "$PKG_ROOT/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "$RELEASE_DIR"
 
 cat > "$PKG_ROOT/DEBIAN/control" <<EOF
@@ -52,6 +61,7 @@ EOF
 
 cp "$ROOT_DIR/automount_gui.py" "$PKG_ROOT/usr/local/share/$PKG_NAME/"
 cp -r "$ROOT_DIR/automount_gui_app" "$PKG_ROOT/usr/local/share/$PKG_NAME/"
+install -m 644 "$ICON_SRC" "$PKG_ROOT/usr/share/icons/hicolor/scalable/apps/$PKG_NAME.svg"
 
 cat > "$PKG_ROOT/usr/local/bin/$PKG_NAME" <<'EOF'
 #!/usr/bin/env bash
@@ -61,6 +71,17 @@ exec python3 "$APP_DIR/automount_gui.py" "$@"
 EOF
 sed -i "s/REPLACE_PKG_NAME/$PKG_NAME/g" "$PKG_ROOT/usr/local/bin/$PKG_NAME"
 chmod 755 "$PKG_ROOT/usr/local/bin/$PKG_NAME"
+
+cat > "$PKG_ROOT/usr/share/applications/$PKG_NAME.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=AutoMount
+Comment=$PKG_DESCRIPTION
+Exec=/usr/local/bin/$PKG_NAME
+Icon=$PKG_NAME
+Terminal=false
+Categories=Utility;System;
+EOF
 
 OUTPUT_DEB="$RELEASE_DIR/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.deb"
 dpkg-deb -b "$PKG_ROOT" "$OUTPUT_DEB" >/dev/null
